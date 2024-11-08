@@ -1,0 +1,217 @@
+--@name Public Recursive Total Armor v1.1
+--@author Daemon
+--@model models/bull/dynamicbuttonsf.mdl
+--@include https://raw.githubusercontent.com/Jacbo1/Public-Starfall/main/SafeNet/safeNet.lua as SafeNet
+--@shared
+
+local net = require("SafeNet")
+
+if SERVER then
+    
+    local function traceArmor(Pos, Dir, MaxDist, Filter)
+        
+        Dir = Dir:getNormalized()
+        
+        local Datas = {}
+        local Filter = Filter or {}
+        
+        local TraceResult = trace.line(Pos, Pos + Dir * MaxDist, Filter)
+        
+        if TraceResult.Entity ~= nil and TraceResult.Entity:isValid() then
+        
+            local HitClip = false
+            
+            try(function() HitClip = TraceResult.Entity:acfHitClip(TraceResult.HitPos) end)
+            
+            if not HitClip then
+                
+                local Data = {}
+                Data.HitPos = TraceResult.HitPos
+                Data.HitNormal = TraceResult.HitNormal
+                Data.Deg = 90 - math.abs(math.deg(math.asin(TraceResult.HitNormal:dot(TraceResult.Normal))))
+                    
+                try(function()
+                    Data.Armor = TraceResult.Entity:acfPropArmor()
+                    Data.EffArmor = acf.effectiveArmor(Data.Armor, Data.Deg)
+                    Data.Ductility = TraceResult.Entity:acfPropDuctility()
+                end)
+                
+                table.insert(Datas, Data)
+                
+            end
+                
+            table.insert(Filter, TraceResult.Entity)
+            
+            local TraceArmorData = traceArmor(TraceResult.HitPos, TraceResult.Normal, MaxDist, Filter)
+            if #TraceArmorData > 0 then table.add(Datas, TraceArmorData) end
+            
+        end
+        
+        return Datas
+        
+    end
+    
+    local DataToSend = {}
+    
+    local function SendPackage()
+        
+        net.start("Package")
+        net.writeTable(DataToSend)
+        net.send(owner())
+        
+    end
+    
+    net.receive("PackageReady", function(len, ply)
+        
+        if ply ~= owner() then return end
+        
+        SendPackage()
+        
+    end)
+    
+    hook.add("Tick", "", function()
+        
+        DataToSend = {}
+        DataToSend.Pos = chip():localToWorld(Vector(0, 0, 3))
+        DataToSend.Dir = chip():getUp()
+        DataToSend.MaxDist = 50
+        DataToSend.Trace = traceArmor(DataToSend.Pos, DataToSend.Dir, DataToSend.MaxDist, find.allPlayers())
+        
+    end)
+    
+    hook.add("ClientInitialized", "", function(ply)
+        
+        if ply == owner() then SendPackage() end
+        
+    end)
+    
+elseif CLIENT and player() == owner() then
+    
+    local Data = {}
+    
+    net.receive("Package", function(len)
+        
+        Data = net.readTable()
+        
+        net.start("PackageReady")
+        net.send()
+        
+    end)
+    
+    enableHud(nil, true)
+    
+    local Res = Vector()
+    Res.x, Res.y = render.getResolution()
+    
+    local MainColor = Color(120, 0.4, 1):hsvToRGB()
+    
+    hook.add("DrawHUD", "", function()
+        
+        if Data.Pos == nil then return end
+        
+        render.setColor(MainColor)
+            
+        render.pushViewMatrix({
+            type = "3D",
+            x = 0,
+            y = 0,
+            w = Res.x,
+            h = Res.y,
+            aspect = Res.x / Res.y,
+        })
+                       
+        local LineStart = Data.Pos
+        local LineEnd =  (#Data.Trace > 0 and Data.Trace[#Data.Trace].HitPos or Data.Pos) + Data.Dir * Data.MaxDist
+        render.draw3DLine(LineStart, LineEnd)
+            
+        local TotalArmor = 0
+        local TotalEffArmor = 0
+        
+        local TotalArmorText = ""
+        local TotalEffArmorText = ""
+        
+        if Data.Trace ~= nil and #Data.Trace > 0 then
+            
+            for _, Tr in pairs(Data.Trace) do
+                
+                local Text
+                if Tr.Armor ~= nil then
+                    
+                    TotalArmor = TotalArmor + Tr.Armor
+                    TotalEffArmor = TotalEffArmor + Tr.EffArmor
+                    
+                    TotalArmorText = TotalArmorText.." + "..math.round(Tr.Armor, 1).."mm"
+                    TotalEffArmorText = TotalEffArmorText.." + "..math.round(Tr.EffArmor, 1).."mm"
+                    
+                    Text = "Armor "..math.round(Tr.Armor, 1).."mm\n\neff "..math.round(Tr.EffArmor, 1).."mm\n("..math.round(Tr.Deg, 2).." deg)\n\nduct "..math.round(Tr.Ductility)..""
+                    
+                    local K = math.clamp(math.remap(Tr.Ductility, -80, 80, 1, -1), -1, 1)
+                    render.setColor(Color(120 + K * 60, 0.5 + math.abs(K) * 0.2, 1):hsvToRGB())
+                    
+                else
+                    
+                    Text = "No armor"
+                    
+                end
+                
+                local Pos = Tr.HitPos
+                local Ang = Tr.HitNormal:getAngle()
+                render.draw3DWireframeBox(Pos, Ang, Vector(-0, -13, -13), Vector(0, 13, 13))
+                
+                local m = Matrix()
+                m:setTranslation(Pos)
+                m:setAngles(Ang)
+                m:rotate(Angle(0, 90, 90))
+                m:setScale(Vector(0.2, -0.2))
+                
+                render.pushMatrix(m)
+                render.drawText(0, -45, Text, TEXT_ALIGN.CENTER)
+                    
+                render.popMatrix()
+                
+            end
+            
+            TotalArmorText = string.right(TotalArmorText, #TotalArmorText - 2)
+            TotalEffArmorText = string.right(TotalEffArmorText, #TotalEffArmorText - 2)
+            
+        end
+        
+        render.setColor(MainColor)
+        
+        local Text = "Public Recursive Total Armor by Daemon\nVersion: 1.1"
+        if TotalArmor > 0 then
+            
+            Text = Text.."\n\nTotal armor: "..math.round(TotalArmor, 2).."mm\n"..TotalArmorText.."\n\nTotal effective armor: "..math.round(TotalEffArmor, 2).."mm\n"..TotalEffArmorText
+            
+        else
+            
+            Text = Text.."\n\nNo armor detected"
+            
+        end
+        
+        local TextSizeW, TextSizeH = render.getTextSize(Text)
+        
+        local DataPos = Data.Pos - Data.Dir * (TextSizeW * 0.2 + 25)
+        local DataAng = (eyePos() - DataPos):getAngle()
+        
+        local m = Matrix()
+        m:setTranslation(DataPos)
+        m:setAngles(DataAng)
+        m:rotate(Angle(0, 90, 90))
+        m:setScale(Vector(0.4, -0.4))
+        
+        render.pushMatrix(m)
+        
+        render.drawText(0, -TextSizeH / 2, Text, TEXT_ALIGN.CENTER)
+            
+        render.popMatrix()
+    
+        TextSizeW = TextSizeW * 0.2 + 15
+        TextSizeH = TextSizeH * 0.2 + 15
+        render.draw3DWireframeBox(DataPos, DataAng, Vector(-0, -TextSizeW, -TextSizeH), Vector(0, TextSizeW, TextSizeH))
+        
+        render.popViewMatrix()
+        
+    end)
+    
+end
