@@ -4,9 +4,11 @@
 --@include https://raw.githubusercontent.com/Jacbo1/Public-Starfall/main/SafeNet/safeNet.lua as SafeNet
 --@shared
 
-local net = require("SafeNet")
+-- GitHub page: https://github.com/Daemon1004/Recursive-Total-Armor
 
 if SERVER then
+
+    local net = require("SafeNet")
     
     local function traceArmor(Pos, Dir, MaxDist, Filter)
         
@@ -86,6 +88,8 @@ if SERVER then
     end)
     
 elseif CLIENT and player() == owner() then
+
+    local net = require("SafeNet")
     
     local Data = {}
     
