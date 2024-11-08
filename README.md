@@ -1,6 +1,7 @@
 Public Recursive Total Armor by Daemon
 ----------
-Created in [StarfallEx](https://github.com/thegrb93/StarfallEx). Version 1.1
+Version 1.1  
+Created in [StarfallEx](https://github.com/thegrb93/StarfallEx)
 #### What is it?
 It's Starfall chip for armor calculation in [ACF-3](https://github.com/ACF-Team/ACF-3).
 #### How to use it?
